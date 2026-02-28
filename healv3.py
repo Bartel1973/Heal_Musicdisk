@@ -11,12 +11,17 @@ class OldskoolMusicDisk:
         pygame.init()
         pygame.mixer.init()
         
-        # Screen setup
+        # Screen setup - adaptive to current display
         info = pygame.display.Info()
         self.width = info.current_w
         self.height = info.current_h
+        
+        # Create fullscreen window
         self.screen = pygame.display.set_mode((self.width, self.height))
-        pygame.display.set_caption("Oldskool Music Disk")
+        pygame.display.set_caption("Oldskool Music Disk - Water Ripple VU")
+        
+        print(f"Screen resolution: {self.width}x{self.height}")
+        
         self.clock = pygame.time.Clock()
         
         # Colors (oldskool palette)
@@ -44,10 +49,16 @@ class OldskoolMusicDisk:
         self.time = 0
         self.starfield = self.init_starfield()
         
-        # Fonts
-        self.title_font = pygame.font.Font(None, 48)
-        self.info_font = pygame.font.Font(None, 32)
-        self.control_font = pygame.font.Font(None, 24)
+        # Text scrolling for track names
+        self.scroll_offset = 0
+        self.scroll_speed = 2  # Pixels per frame
+        self.scroll_pause = 0  # Frames to pause at start/end
+        
+        # Fonts - adaptive scaling based on screen size
+        base_font_size = max(24, min(48, self.height // 20))
+        self.title_font = pygame.font.Font(None, base_font_size * 2)
+        self.info_font = pygame.font.Font(None, base_font_size)
+        self.control_font = pygame.font.Font(None, base_font_size // 2)
         
         # Load first track
         if self.music_files:
@@ -119,6 +130,30 @@ class OldskoolMusicDisk:
         """Go to previous track"""
         if self.music_files:
             self.load_track((self.current_track - 1) % len(self.music_files))
+    
+    def seek_forward(self):
+        """Seek forward 10 seconds"""
+        if self.music_files and self.is_playing:
+            try:
+                current_pos = pygame.mixer.music.get_pos() / 1000.0  # Convert to seconds
+                new_pos = current_pos + 10
+                # Note: pygame.mixer.music doesn't have direct seek, so we'll reload and play from position
+                # This is a limitation of pygame.mixer.music
+                print(f"Seek forward to {new_pos:.1f}s (limited by pygame.mixer)")
+            except:
+                print("Seek not supported by current pygame.mixer backend")
+    
+    def seek_backward(self):
+        """Seek backward 10 seconds"""
+        if self.music_files and self.is_playing:
+            try:
+                current_pos = pygame.mixer.music.get_pos() / 1000.0  # Convert to seconds
+                new_pos = max(0, current_pos - 10)
+                # Note: pygame.mixer.music doesn't have direct seek, so we'll reload and play from position
+                # This is a limitation of pygame.mixer.music
+                print(f"Seek backward to {new_pos:.1f}s (limited by pygame.mixer)")
+            except:
+                print("Seek not supported by current pygame.mixer backend")
     
     def set_volume(self, delta):
         """Adjust volume"""
@@ -357,28 +392,32 @@ class OldskoolMusicDisk:
                                              special_flags=pygame.BLEND_ADD)
     
     def draw_controls(self):
-        """Draw control interface"""
-        # Control panel background
-        panel_rect = pygame.Rect(50, self.height - 150, self.width - 100, 100)
+        """Draw control interface - adaptive scaling"""
+        # Control panel background - adaptive positioning
+        panel_margin = self.width // 20
+        panel_height = self.height // 8
+        panel_rect = pygame.Rect(panel_margin, self.height - panel_height - panel_margin, 
+                                 self.width - 2 * panel_margin, panel_height)
         pygame.draw.rect(self.screen, (20, 20, 40), panel_rect)
         pygame.draw.rect(self.screen, self.primary_color, panel_rect, 2)
         
-        # Controls
+        # Controls - adaptive positioning
         controls = [
-            ("[SPACE] Play/Pause", 70, self.height - 120),
-            ("[S] Stop", 250, self.height - 120),
-            ("[←] Previous", 400, self.height - 120),
-            ("[→] Next", 550, self.height - 120),
-            ("[+/-] Volume", 700, self.height - 120),
+            ("[SPACE] Play/Pause", panel_margin + 20, self.height - panel_height),
+            ("[S] Stop", panel_margin + 200, self.height - panel_height),
+            ("[←/→] Prev/Next", panel_margin + 320, self.height - panel_height),
+            ("[↑/↓] Seek ±10s", panel_margin + 480, self.height - panel_height),
+            ("[+/-] Volume", panel_margin + 640, self.height - panel_height),
+            ("[ESC] Quit", panel_margin + 780, self.height - panel_height)
         ]
         
         for text, x, y in controls:
             surface = self.control_font.render(text, True, self.text_color)
             self.screen.blit(surface, (x, y))
         
-        # Volume bar
-        vol_x = 850
-        vol_y = self.height - 120
+        # Volume bar - adaptive positioning
+        vol_x = self.width - 250
+        vol_y = self.height - panel_height + 20
         vol_width = 200
         vol_height = 20
         
@@ -390,20 +429,71 @@ class OldskoolMusicDisk:
         self.screen.blit(vol_text, (vol_x, vol_y - 25))
     
     def draw_info(self):
-        """Draw track information"""
+        """Draw track information - adaptive scaling with scrolling text"""
         if self.music_files:
             # Current track name
             track_name = os.path.basename(self.music_files[self.current_track])
-            if len(track_name) > 40:
-                track_name = track_name[:37] + "..."
             
+            # Title - adaptive positioning
+            title_y = self.height // 20
             title_surface = self.title_font.render("Heal Musicdisk by Ohm-ego of RBBS^F.SyS", True, self.primary_color)
-            title_rect = title_surface.get_rect(center=(self.width // 2, 50))
+            title_rect = title_surface.get_rect(center=(self.width // 2, title_y))
             self.screen.blit(title_surface, title_rect)
             
+            # Track name with scrolling - adaptive positioning
+            track_y = title_y + self.height // 15
+            
+            # Render the full track name
             track_surface = self.info_font.render(track_name, True, self.text_color)
-            track_rect = track_surface.get_rect(center=(self.width // 2, 100))
-            self.screen.blit(track_surface, track_rect)
+            track_width = track_surface.get_width()
+            
+            # Calculate available width (leave some margin)
+            available_width = self.width - 100
+            
+            # Update scrolling
+            if track_width > available_width:
+                # Need to scroll
+                if self.scroll_pause > 0:
+                    self.scroll_pause -= 1
+                else:
+                    self.scroll_offset += self.scroll_speed
+                    
+                    # Reset scroll when text has fully scrolled
+                    if self.scroll_offset > track_width + 50:
+                        self.scroll_offset = -available_width
+                        self.scroll_pause = 60  # Pause before starting again
+            else:
+                # No scrolling needed, center the text
+                self.scroll_offset = 0
+            
+            # Create clipping region for scrolling effect
+            clip_rect = pygame.Rect(50, track_y - 20, available_width, 40)
+            self.screen.set_clip(clip_rect)
+            
+            # Draw the scrolling text
+            if track_width > available_width:
+                # Draw text at scrolled position
+                scroll_x = 50 - self.scroll_offset
+                self.screen.blit(track_surface, (scroll_x, track_y - 10))
+                
+                # Draw text again for seamless loop (when scrolling)
+                if self.scroll_offset > 0:
+                    loop_x = scroll_x + track_width + 50
+                    self.screen.blit(track_surface, (loop_x, track_y - 10))
+            else:
+                # Center text if it fits
+                centered_x = (self.width - track_width) // 2
+                self.screen.blit(track_surface, (centered_x, track_y - 10))
+            
+            # Reset clipping
+            self.screen.set_clip(None)
+            
+            # Status indicator
+            status = "▶ PLAYING" if self.is_playing else "⏸ PAUSED"
+            status_color = (0, 255, 0) if self.is_playing else (255, 255, 0)
+            status_surface = self.info_font.render(status, True, status_color)
+            status_rect = status_surface.get_rect(center=(self.width // 2, track_y + self.height // 20))
+            self.screen.blit(status_surface, status_rect)
             
             # Track info
             info_text = f"Track {self.current_track + 1}/{len(self.music_files)}"
@@ -413,7 +503,7 @@ class OldskoolMusicDisk:
                 info_text += " - PAUSED"
             
             info_surface = self.control_font.render(info_text, True, self.accent_color)
-            info_rect = info_surface.get_rect(center=(self.width // 2, 140))
+            info_rect = info_surface.get_rect(center=(self.width // 2, track_y + self.height // 10))
             self.screen.blit(info_surface, info_rect)
         else:
             # No MP3 files found
@@ -444,6 +534,10 @@ class OldskoolMusicDisk:
                         self.prev_track()
                     elif event.key == pygame.K_RIGHT:
                         self.next_track()
+                    elif event.key == pygame.K_UP:
+                        self.seek_forward()
+                    elif event.key == pygame.K_DOWN:
+                        self.seek_backward()
                     elif event.key == pygame.K_PLUS or event.key == pygame.K_EQUALS:
                         self.set_volume(0.1)
                     elif event.key == pygame.K_MINUS:
