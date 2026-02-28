@@ -63,7 +63,7 @@ class OldskoolMusicDisk:
     def init_starfield(self):
         """Initialize background starfield"""
         stars = []
-        for _ in range(100):
+        for _ in range(200):
             stars.append({
                 'x': (np.random.random() - 0.5) * self.width * 2,  # Range: -width to +width
                 'y': (np.random.random() - 0.5) * self.height * 2,  # Range: -height to +height
