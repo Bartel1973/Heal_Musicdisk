@@ -5,7 +5,7 @@
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_FILE="$SCRIPT_DIR/heal.py"
+PYTHON_FILE="$SCRIPT_DIR/healv2.py"
 
 # Check if Python file exists
 if [ ! -f "$PYTHON_FILE" ]; then
