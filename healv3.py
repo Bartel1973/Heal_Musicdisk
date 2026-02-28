@@ -34,10 +34,11 @@ class OldskoolMusicDisk:
         pygame.mixer.music.set_volume(self.volume)
         
         # VU meter setup
-        self.vu_waves = []
-        self.vu_wave_count = 8  # Number of plasma waves
-        self.vu_segments = 64  # Segments per wave
-        self.init_plasma_waves()
+        self.vu_particles = []
+        self.vu_cloud_centers = 4
+        self.vu_particles_per_center = 20
+        self.vu_layers = 3  # 3D layers
+        self.init_vu_cloud()
         
         # Animation
         self.time = 0
@@ -124,28 +125,40 @@ class OldskoolMusicDisk:
         self.volume = max(0.0, min(1.0, self.volume + delta))
         pygame.mixer.music.set_volume(self.volume)
     
-    def init_plasma_waves(self):
-        """Initialize plasma wave VU effect"""
-        self.vu_waves = []
+    def init_vu_cloud(self):
+        """Initialize 3D VU cloud particles"""
+        self.vu_particles = []
+        center_x = self.width // 2
+        center_y = self.height // 2
         
-        for wave_idx in range(self.vu_wave_count):
-            wave = {
-                'index': wave_idx,
-                'base_y': (wave_idx + 1) * (self.height / (self.vu_wave_count + 1)),
-                'amplitude': np.random.uniform(20, 40),
-                'frequency': np.random.uniform(0.01, 0.03),
-                'phase': np.random.uniform(0, 2 * math.pi),
-                'speed': np.random.uniform(0.5, 2.0),
-                'color_phase': np.random.uniform(0, 2 * math.pi),
-                'thickness': np.random.uniform(2, 5),
-                'intensity_history': [0] * 10,  # Smooth intensity changes
-                'ripple_phase': np.random.uniform(0, 2 * math.pi),
-                'vertical_offset': np.random.uniform(-20, 20)
-            }
-            self.vu_waves.append(wave)
+        for layer in range(self.vu_layers):
+            layer_depth = (layer + 1) / self.vu_layers  # Front to back
+            
+            for center_idx in range(self.vu_cloud_centers):
+                angle = (center_idx / self.vu_cloud_centers) * 2 * math.pi
+                base_radius = min(self.width, self.height) // 4
+                
+                for particle_idx in range(self.vu_particles_per_center):
+                    particle = {
+                        'layer': layer,
+                        'depth': layer_depth,
+                        'center_idx': center_idx,
+                        'offset_angle': np.random.uniform(0, 2 * math.pi),
+                        'offset_radius': np.random.uniform(0, 35),
+                        'offset_z': np.random.uniform(-30, 30),  # Z-axis offset
+                        'base_angle': angle,
+                        'base_radius': base_radius,
+                        'size': np.random.uniform(2, 8),
+                        'phase': np.random.uniform(0, 2 * math.pi),
+                        'speed': np.random.uniform(0.5, 2.0),
+                        'color_shift': np.random.uniform(0, 1),
+                        'density': np.random.uniform(0.3, 1.0),  # Gas density
+                        'viscosity': np.random.uniform(0.8, 1.2)  # Liquid viscosity
+                    }
+                    self.vu_particles.append(particle)
     
-    def update_plasma_waves(self):
-        """Update plasma wave VU effect based on audio"""
+    def update_vu_cloud(self):
+        """Update 3D VU cloud particles based on audio"""
         if self.is_playing:
             # Create rhythmic VU data
             base_level = 0.3
@@ -154,29 +167,43 @@ class OldskoolMusicDisk:
             intensity = base_level + beat + noise
             intensity = max(0, min(1, intensity))
             
-            # Update each wave
-            for wave in self.vu_waves:
-                # Update intensity history for smooth transitions
-                wave['intensity_history'].pop(0)
-                wave['intensity_history'].append(intensity)
+            # Update each particle
+            for particle in self.vu_particles:
+                # Organic movement with 3D dynamics
+                particle['phase'] += particle['speed'] * 0.05 * particle['viscosity']
                 
-                # Smooth intensity
-                smooth_intensity = sum(wave['intensity_history']) / len(wave['intensity_history'])
+                # Calculate 3D position with organic movement
+                wobble = math.sin(particle['phase']) * 0.3
+                pulse = math.sin(self.time * 0.001 + particle['color_shift'] * math.pi) * 0.2
+                depth_pulse = math.sin(self.time * 0.0007 + particle['layer']) * 0.15
                 
-                # Update wave parameters
-                wave['phase'] += wave['speed'] * 0.02
-                wave['color_phase'] += wave['speed'] * 0.01
-                wave['ripple_phase'] += 0.03
+                # 3D radius with depth-based scaling
+                depth_scale = 1.0 - (particle['depth'] * 0.3)  # Back particles smaller
+                current_radius = (particle['base_radius'] + particle['offset_radius'] + 
+                               (intensity * 80 * (1 + pulse + wobble)) * depth_scale +
+                               particle['offset_z'] * depth_pulse)
                 
-                # Dynamic amplitude based on intensity
-                wave['current_amplitude'] = wave['amplitude'] * (0.5 + smooth_intensity * 1.5)
-                wave['current_intensity'] = smooth_intensity
+                # 3D angle with depth-based movement
+                depth_rotation = particle['depth'] * 0.2  # Back particles rotate differently
+                current_angle = (particle['base_angle'] + particle['offset_angle'] + 
+                              math.sin(particle['phase']) * 0.5 + 
+                              math.cos(self.time * 0.0005 + particle['center_idx']) * 0.2 +
+                              depth_rotation)
+                
+                # Z-axis movement (liquid gas effect)
+                z_bubble = math.sin(particle['phase'] * 0.7) * 10 * particle['density']
+                particle['current_z'] = particle['offset_z'] + z_bubble
+                
+                particle['current_radius'] = current_radius
+                particle['current_angle'] = current_angle
+                particle['intensity'] = intensity * particle['density']
         else:
             # Fade out when not playing
-            for wave in self.vu_waves:
-                wave['intensity_history'] = [max(0, val - 0.02) for val in wave['intensity_history']]
-                wave['current_amplitude'] = wave['amplitude'] * 0.3
-                wave['current_intensity'] = max(0, wave.get('current_intensity', 0) - 0.02)
+            for particle in self.vu_particles:
+                particle['intensity'] = max(0, particle.get('intensity', 0) - 0.02)
+                particle['current_radius'] = particle['base_radius'] + particle['offset_radius']
+                particle['current_angle'] = particle['base_angle'] + particle['offset_angle']
+                particle['current_z'] = particle['offset_z']
     
     def draw_starfield(self):
         """Draw animated starfield background"""
@@ -200,107 +227,134 @@ class OldskoolMusicDisk:
                 color = (brightness, brightness, brightness)
                 pygame.draw.circle(self.screen, color, (int(x), int(y)), size)
     
-    def draw_plasma_waves(self):
-        """Draw plasma wave VU effect"""
-        for wave in self.vu_waves:
-            intensity = wave.get('current_intensity', 0)
-            if intensity > 0.01:  # Only draw visible waves
-                
-                # Create plasma surface for this wave
-                plasma_surface = pygame.Surface((self.width, int(wave['thickness'] * 4)), pygame.SRCALPHA)
-                
-                # Draw plasma wave segments
-                points = []
-                for segment in range(self.vu_segments + 1):
-                    x = (segment / self.vu_segments) * self.width
-                    
-                    # Multiple sine waves for complex plasma effect
-                    wave1 = math.sin(x * wave['frequency'] + wave['phase']) * wave['current_amplitude']
-                    wave2 = math.sin(x * wave['frequency'] * 2 + wave['phase'] * 1.5) * wave['current_amplitude'] * 0.5
-                    wave3 = math.cos(x * wave['frequency'] * 0.5 + wave['ripple_phase']) * wave['current_amplitude'] * 0.3
-                    
-                    # Ripple effect
-                    ripple = math.sin(segment * 0.2 + wave['ripple_phase']) * 10 * intensity
-                    
-                    # Combine waves
-                    y = wave['base_y'] + wave['vertical_offset'] + wave1 + wave2 + wave3 + ripple
-                    points.append((x, y))
-                
-                # Draw plasma wave with gradient
-                if len(points) > 1:
-                    # Create color based on intensity and phase
-                    hue = (wave['color_phase'] + intensity * math.pi) % (2 * math.pi)
-                    
-                    # Convert HSV to RGB for smooth color transitions
-                    if hue < math.pi * 2/3:  # Red to Green
-                        r = int(255 * (1 - hue / (math.pi * 2/3)))
-                        g = int(255 * (hue / (math.pi * 2/3)))
-                        b = 0
-                    elif hue < math.pi * 4/3:  # Green to Blue
-                        r = 0
-                        g = int(255 * (1 - (hue - math.pi * 2/3) / (math.pi * 2/3)))
-                        b = int(255 * ((hue - math.pi * 2/3) / (math.pi * 2/3)))
-                    else:  # Blue to Red
-                        r = int(255 * ((hue - math.pi * 4/3) / (math.pi * 2/3)))
-                        g = 0
-                        b = int(255 * (1 - (hue - math.pi * 4/3) / (math.pi * 2/3)))
-                    
-                    # Apply intensity
-                    base_color = (
-                        int(r * intensity),
-                        int(g * intensity),
-                        int(b * intensity)
-                    )
-                    
-                    # Draw multiple layers for glow effect
-                    for layer in range(3):
-                        layer_intensity = intensity * (1 - layer * 0.3)
-                        layer_thickness = wave['thickness'] * (3 - layer)
-                        layer_color = tuple(int(c * layer_intensity) for c in base_color)
-                        
-                        # Draw wave segment
-                        layer_points = [(p[0], p[1] + layer * 2) for p in points]
-                        
-                        if len(layer_points) > 1:
-                            # Draw with anti-aliasing
-                            pygame.draw.lines(plasma_surface, layer_color, False, layer_points, int(layer_thickness))
-                    
-                    # Add glow effect
-                    glow_surface = pygame.Surface((self.width, int(wave['thickness'] * 8)), pygame.SRCALPHA)
-                    glow_color = (*base_color, int(50 * intensity))
-                    
-                    glow_points = [(p[0], p[1] - wave['base_y'] + wave['thickness'] * 4) for p in points]
-                    if len(glow_points) > 1:
-                        pygame.draw.lines(glow_surface, glow_color, False, glow_points, int(wave['thickness'] * 2))
-                    
-                    # Blit glow to main surface
-                    self.screen.blit(glow_surface, (0, wave['base_y'] - wave['thickness'] * 4), special_flags=pygame.BLEND_ADD)
-                    
-                    # Blit main plasma wave
-                    self.screen.blit(plasma_surface, (0, wave['base_y'] - wave['thickness'] * 2), special_flags=pygame.BLEND_ADD)
+    def draw_vu_cloud(self):
+        """Draw 3D liquid gas VU cloud"""
+        center_x = self.width // 2
+        center_y = self.height // 2
         
-        # Draw interference patterns between waves
-        for i, wave1 in enumerate(self.vu_waves):
-            if wave1.get('current_intensity', 0) > 0.3:
-                for j, wave2 in enumerate(self.vu_waves[i+1:], i+1):
-                    if wave2.get('current_intensity', 0) > 0.3:
-                        # Calculate interference points
-                        for segment in range(0, self.vu_segments, 8):  # Sample every 8th segment
-                            x = (segment / self.vu_segments) * self.width
+        # Sort particles by depth (back to front)
+        sorted_particles = sorted(self.vu_particles, key=lambda p: p['depth'], reverse=True)
+        
+        for particle in sorted_particles:
+            intensity = particle.get('intensity', 0)
+            if intensity > 0.01:  # Only draw visible particles
+                # Calculate 3D position
+                depth_scale = 1.0 - (particle['depth'] * 0.3)
+                z_offset = particle.get('current_z', 0) * depth_scale
+                
+                x = center_x + math.cos(particle['current_angle']) * (particle['current_radius'] + z_offset)
+                y = center_y + math.sin(particle['current_angle']) * (particle['current_radius'] + z_offset)
+                
+                # 3D size scaling
+                size = particle['size'] * depth_scale * (0.5 + intensity * 1.5)
+                
+                # Depth-based opacity
+                depth_opacity = 1.0 - (particle['depth'] * 0.4)
+                
+                # Color based on intensity and depth
+                if intensity > 0.7:
+                    base_color = (255, 100, 100)  # Red for high
+                elif intensity > 0.4:
+                    base_color = (255, 255, 100)  # Yellow for medium
+                else:
+                    base_color = (100, 255, 100)  # Green for low
+                
+                # Add color variation based on particle and depth
+                color_shift = particle['color_shift']
+                depth_shift = particle['depth'] * 0.3
+                color = (
+                    int(base_color[0] * (0.7 + 0.3 * color_shift) * depth_opacity),
+                    int(base_color[1] * (0.7 + 0.3 * (1 - color_shift)) * depth_opacity),
+                    int(base_color[2] * (0.7 + 0.3 * math.sin(color_shift * math.pi)) * depth_opacity)
+                )
+                
+                # Apply intensity to color
+                color = tuple(int(c * intensity) for c in color)
+                
+                # Draw liquid gas effect with multiple layers
+                if size > 3:
+                    # Outer gas halo (largest, most transparent)
+                    gas_size = size * 3
+                    gas_alpha = int(50 * intensity * particle['density'] * depth_opacity)
+                    gas_color = tuple(min(255, int(c * 0.2)) for c in color)
+                    
+                    # Create gas surface with transparency
+                    gas_surface = pygame.Surface((int(gas_size * 2), int(gas_size * 2)), pygame.SRCALPHA)
+                    for i in range(int(gas_size), 0, -2):
+                        alpha = int(gas_alpha * (1 - i / gas_size))
+                        bubble_color = (*gas_color, alpha)
+                        pygame.draw.circle(gas_surface, bubble_color, 
+                                       (int(gas_size), int(gas_size)), i)
+                    
+                    self.screen.blit(gas_surface, 
+                                   (int(x - gas_size), int(y - gas_size)), 
+                                   special_flags=pygame.BLEND_ADD)
+                
+                # Liquid bubble (medium)
+                if size > 2:
+                    liquid_size = size * 1.5
+                    liquid_alpha = int(120 * intensity * particle['density'] * depth_opacity)
+                    liquid_surface = pygame.Surface((int(liquid_size * 2), int(liquid_size * 2)), pygame.SRCALPHA)
+                    
+                    for i in range(int(liquid_size), 0, -1):
+                        alpha = int(liquid_alpha * (1 - i / liquid_size))
+                        bubble_color = (*color, alpha)
+                        pygame.draw.circle(liquid_surface, bubble_color, 
+                                       (int(liquid_size), int(liquid_size)), i)
+                    
+                    self.screen.blit(liquid_surface, 
+                                   (int(x - liquid_size), int(y - liquid_size)), 
+                                   special_flags=pygame.BLEND_ADD)
+                
+                # Core particle (brightest)
+                core_size = max(1, int(size * 0.8))
+                core_color = tuple(min(255, int(c * 1.5)) for c in color)
+                pygame.draw.circle(self.screen, core_color, (int(x), int(y)), core_size)
+                
+                # Bright center
+                if size > 1:
+                    center_color = tuple(min(255, int(c * 2.0)) for c in color)
+                    pygame.draw.circle(self.screen, center_color, (int(x), int(y)), max(1, core_size // 2))
+        
+        # Draw 3D connecting gas streams between nearby particles
+        for i, p1 in enumerate(sorted_particles):
+            if p1.get('intensity', 0) > 0.3:
+                x1 = center_x + math.cos(p1['current_angle']) * (p1['current_radius'] + p1.get('current_z', 0))
+                y1 = center_y + math.sin(p1['current_angle']) * (p1['current_radius'] + p1.get('current_z', 0))
+                
+                for j, p2 in enumerate(sorted_particles[i+1:], i+1):
+                    if p2.get('intensity', 0) > 0.3:
+                        x2 = center_x + math.cos(p2['current_angle']) * (p2['current_radius'] + p2.get('current_z', 0))
+                        y2 = center_y + math.sin(p2['current_angle']) * (p2['current_radius'] + p2.get('current_z', 0))
+                        
+                        # Calculate 3D distance
+                        dist = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                        depth_diff = abs(p1['depth'] - p2['depth'])
+                        total_dist = dist + depth_diff * 50
+                        
+                        # Draw gas stream if particles are close
+                        if total_dist < 120:
+                            # Depth-based connection strength
+                            avg_depth = (p1['depth'] + p2['depth']) / 2
+                            depth_factor = 1.0 - avg_depth * 0.5
                             
-                            # Get wave positions
-                            y1 = wave1['base_y'] + math.sin(x * wave1['frequency'] + wave1['phase']) * wave1['current_amplitude']
-                            y2 = wave2['base_y'] + math.sin(x * wave2['frequency'] + wave2['phase']) * wave2['current_amplitude']
+                            alpha = int(255 * (1 - total_dist / 120) * 
+                                      min(p1.get('intensity', 0), p2.get('intensity', 0)) * 
+                                      0.2 * depth_factor)
                             
-                            # Draw interference pattern
-                            dist = abs(y2 - y1)
-                            if dist < 50:  # Waves are close enough to interfere
-                                avg_intensity = (wave1.get('current_intensity', 0) + wave2.get('current_intensity', 0)) / 2
-                                alpha = int(100 * avg_intensity * (1 - dist / 50))
+                            if alpha > 5:
+                                # Create gas stream surface
+                                stream_surface = pygame.Surface((abs(int(x2-x1)) + 20, abs(int(y2-y1)) + 20), pygame.SRCALPHA)
+                                stream_color = (alpha // 3, alpha // 2, alpha // 3, alpha)
                                 
-                                if alpha > 10:
-                                    interference_color = (alpha, alpha // 2, alpha)
-                                    pygame.draw.circle(self.screen, interference_color, (int(x), int((y1 + y2) // 2)), 3)
+                                # Draw thick gas stream
+                                pygame.draw.line(stream_surface, stream_color, 
+                                             (10, 10), (abs(int(x2-x1)) + 10, abs(int(y2-y1)) + 10), 
+                                             max(1, int(5 * depth_factor)))
+                                
+                                self.screen.blit(stream_surface, 
+                                             (min(int(x1), int(x2)) - 10, min(int(y1), int(y2)) - 10), 
+                                             special_flags=pygame.BLEND_ADD)
     
     def draw_controls(self):
         """Draw control interface"""
@@ -404,9 +458,9 @@ class OldskoolMusicDisk:
             # Draw effects
             self.draw_starfield()
             
-            # Update and draw plasma waves
-            self.update_plasma_waves()
-            self.draw_plasma_waves()
+            # Update and draw VU cloud
+            self.update_vu_cloud()
+            self.draw_vu_cloud()
             
             # Draw UI
             self.draw_info()

@@ -34,10 +34,10 @@ class OldskoolMusicDisk:
         pygame.mixer.music.set_volume(self.volume)
         
         # VU meter setup
-        self.vu_bars = 32
-        self.vu_history = [[0] * self.vu_bars for _ in range(20)]  # History for trail effect
-        self.vu_peaks = [0] * self.vu_bars
-        self.peak_decay = 0.95
+        self.vu_particles = []
+        self.vu_cloud_centers = 8
+        self.vu_particles_per_center = 15
+        self.init_vu_cloud()
         
         # Animation
         self.time = 0
@@ -51,6 +51,9 @@ class OldskoolMusicDisk:
         # Load first track
         if self.music_files:
             self.load_track(0)
+        
+        # Set up music end event
+        pygame.mixer.music.set_endevent(pygame.USEREVENT + 1)
     
     def find_mp3_files(self):
         """Find all MP3 files in current directory"""
@@ -121,38 +124,67 @@ class OldskoolMusicDisk:
         self.volume = max(0.0, min(1.0, self.volume + delta))
         pygame.mixer.music.set_volume(self.volume)
     
-    def simulate_vu_data(self):
-        """Simulate VU meter data (since we can't get real audio data from pygame.mixer)"""
+    def init_vu_cloud(self):
+        """Initialize VU cloud particles"""
+        self.vu_particles = []
+        center_x = self.width // 2
+        center_y = self.height // 2
+        
+        for center_idx in range(self.vu_cloud_centers):
+            angle = (center_idx / self.vu_cloud_centers) * 2 * math.pi
+            base_radius = min(self.width, self.height) // 4
+            
+            for particle_idx in range(self.vu_particles_per_center):
+                particle = {
+                    'center_idx': center_idx,
+                    'offset_angle': np.random.uniform(0, 2 * math.pi),
+                    'offset_radius': np.random.uniform(0, 50),
+                    'base_angle': angle,
+                    'base_radius': base_radius,
+                    'size': np.random.uniform(2, 6),
+                    'phase': np.random.uniform(0, 2 * math.pi),
+                    'speed': np.random.uniform(0.5, 2.0),
+                    'color_shift': np.random.uniform(0, 1)
+                }
+                self.vu_particles.append(particle)
+    
+    def update_vu_cloud(self):
+        """Update VU cloud particles based on audio"""
         if self.is_playing:
-            # Create rhythmic VU data based on time
+            # Create rhythmic VU data
             base_level = 0.3
             beat = math.sin(self.time * 0.002) * 0.3 + 0.3
-            noise = np.random.random(self.vu_bars) * 0.2
+            noise = np.random.random() * 0.2
+            intensity = base_level + beat + noise
+            intensity = max(0, min(1, intensity))
             
-            # Create frequency-like pattern
-            freq_pattern = np.sin(np.linspace(0, math.pi * 4, self.vu_bars) + self.time * 0.001)
-            
-            vu_data = base_level + beat + noise + freq_pattern * 0.2
-            vu_data = np.clip(vu_data, 0, 1)
+            # Update each particle
+            for particle in self.vu_particles:
+                # Organic movement
+                particle['phase'] += particle['speed'] * 0.05
+                
+                # Calculate position with organic movement
+                wobble = math.sin(particle['phase']) * 0.3
+                pulse = math.sin(self.time * 0.001 + particle['color_shift'] * math.pi) * 0.2
+                
+                # Dynamic radius based on audio intensity
+                current_radius = (particle['base_radius'] + particle['offset_radius'] + 
+                               (intensity * 80 * (1 + pulse + wobble)))
+                
+                # Dynamic angle with organic movement
+                current_angle = (particle['base_angle'] + particle['offset_angle'] + 
+                              math.sin(particle['phase']) * 0.5 + 
+                              math.cos(self.time * 0.0005 + particle['center_idx']) * 0.2)
+                
+                particle['current_radius'] = current_radius
+                particle['current_angle'] = current_angle
+                particle['intensity'] = intensity
         else:
-            vu_data = np.zeros(self.vu_bars)
-        
-        return vu_data
-    
-    def update_vu_meter(self):
-        """Update VU meter data"""
-        vu_data = self.simulate_vu_data()
-        
-        # Update history (shift and add new data)
-        self.vu_history.pop(0)
-        self.vu_history.append(vu_data.tolist())
-        
-        # Update peaks
-        for i in range(self.vu_bars):
-            if vu_data[i] > self.vu_peaks[i]:
-                self.vu_peaks[i] = vu_data[i]
-            else:
-                self.vu_peaks[i] *= self.peak_decay
+            # Fade out when not playing
+            for particle in self.vu_particles:
+                particle['intensity'] = max(0, particle.get('intensity', 0) - 0.02)
+                particle['current_radius'] = particle['base_radius'] + particle['offset_radius']
+                particle['current_angle'] = particle['base_angle'] + particle['offset_angle']
     
     def draw_starfield(self):
         """Draw animated starfield background"""
@@ -176,65 +208,75 @@ class OldskoolMusicDisk:
                 color = (brightness, brightness, brightness)
                 pygame.draw.circle(self.screen, color, (int(x), int(y)), size)
     
-    def draw_vu_meter(self):
-        """Draw fancy VU meter with effects"""
+    def draw_vu_cloud(self):
+        """Draw cloudy, dotted, amorphous VU meter"""
         center_x = self.width // 2
         center_y = self.height // 2
-        max_radius = min(self.width, self.height) // 3
         
-        # Draw circular VU meter
-        for i in range(self.vu_bars):
-            angle = (i / self.vu_bars) * 2 * math.pi - math.pi / 2
-            
-            # Get current and historical values
-            current_value = self.vu_history[-1][i] if self.vu_history else 0
-            peak_value = self.vu_peaks[i]
-            
-            # Draw bar
-            for j, history_data in enumerate(reversed(self.vu_history[-5:])):  # Trail effect
-                history_value = history_data[i]  # Get specific bar value from history
-                radius = max_radius * (0.7 + 0.3 * history_value)
-                alpha = (j + 1) / 5  # Fade trail
+        for particle in self.vu_particles:
+            intensity = particle.get('intensity', 0)
+            if intensity > 0.01:  # Only draw visible particles
+                # Calculate position
+                x = center_x + math.cos(particle['current_angle']) * particle['current_radius']
+                y = center_y + math.sin(particle['current_angle']) * particle['current_radius']
                 
-                # Color based on intensity
-                if history_value > 0.8:
-                    color = (255 * alpha, 0, 0)  # Red for high
-                elif history_value > 0.6:
-                    color = (255 * alpha, 255 * alpha, 0)  # Yellow for medium
+                # Dynamic size based on intensity
+                size = particle['size'] * (0.5 + intensity * 1.5)
+                
+                # Color based on intensity and position
+                if intensity > 0.7:
+                    base_color = (255, 100, 100)  # Red for high
+                elif intensity > 0.4:
+                    base_color = (255, 255, 100)  # Yellow for medium
                 else:
-                    color = (0, 255 * alpha, 0)  # Green for low
+                    base_color = (100, 255, 100)  # Green for low
                 
-                # Calculate bar endpoints
-                inner_radius = max_radius * 0.6
-                x1 = center_x + math.cos(angle) * inner_radius
-                y1 = center_y + math.sin(angle) * inner_radius
-                x2 = center_x + math.cos(angle) * radius
-                y2 = center_y + math.sin(angle) * radius
+                # Add color variation based on particle
+                color_shift = particle['color_shift']
+                color = (
+                    int(base_color[0] * (0.7 + 0.3 * color_shift)),
+                    int(base_color[1] * (0.7 + 0.3 * (1 - color_shift))),
+                    int(base_color[2] * (0.7 + 0.3 * math.sin(color_shift * math.pi)))
+                )
                 
-                pygame.draw.line(self.screen, color, (x1, y1), (x2, y2), 3)
-            
-            # Draw peak indicator
-            if peak_value > 0.1:
-                peak_radius = max_radius * (0.7 + 0.3 * peak_value)
-                x_peak = center_x + math.cos(angle) * peak_radius
-                y_peak = center_y + math.sin(angle) * peak_radius
-                pygame.draw.circle(self.screen, self.accent_color, (int(x_peak), int(y_peak)), 2)
+                # Apply intensity to color
+                color = tuple(int(c * intensity) for c in color)
+                
+                # Draw particle with glow effect
+                if size > 3:
+                    # Outer glow
+                    glow_size = size * 2
+                    glow_color = tuple(int(c * 0.3) for c in color)
+                    pygame.draw.circle(self.screen, glow_color, (int(x), int(y)), int(glow_size))
+                
+                # Main particle
+                pygame.draw.circle(self.screen, color, (int(x), int(y)), int(size))
+                
+                # Inner bright core
+                if size > 2:
+                    core_color = tuple(min(255, int(c * 1.5)) for c in color)
+                    pygame.draw.circle(self.screen, core_color, (int(x), int(y)), max(1, int(size * 0.3)))
         
-        # Draw center circle
-        pygame.draw.circle(self.screen, self.primary_color, (center_x, center_y), int(max_radius * 0.6), 2)
-        
-        # Draw frequency spectrum bars (inner circle)
-        for i in range(16):
-            angle = (i / 16) * 2 * math.pi - math.pi / 2
-            value = self.vu_history[-1][i * 2] if self.vu_history else 0
-            bar_length = max_radius * 0.5 * value
-            
-            x1 = center_x + math.cos(angle) * (max_radius * 0.3)
-            y1 = center_y + math.sin(angle) * (max_radius * 0.3)
-            x2 = center_x + math.cos(angle) * (max_radius * 0.3 + bar_length)
-            y2 = center_y + math.sin(angle) * (max_radius * 0.3 + bar_length)
-            
-            pygame.draw.line(self.screen, self.secondary_color, (x1, y1), (x2, y2), 2)
+        # Draw connecting lines between nearby particles for cloud effect
+        for i, p1 in enumerate(self.vu_particles):
+            if p1.get('intensity', 0) > 0.3:
+                x1 = center_x + math.cos(p1['current_angle']) * p1['current_radius']
+                y1 = center_y + math.sin(p1['current_angle']) * p1['current_radius']
+                
+                for j, p2 in enumerate(self.vu_particles[i+1:], i+1):
+                    if p2.get('intensity', 0) > 0.3:
+                        x2 = center_x + math.cos(p2['current_angle']) * p2['current_radius']
+                        y2 = center_y + math.sin(p2['current_angle']) * p2['current_radius']
+                        
+                        # Calculate distance
+                        dist = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                        
+                        # Draw line if particles are close
+                        if dist < 100:
+                            alpha = int(255 * (1 - dist / 100) * min(p1.get('intensity', 0), p2.get('intensity', 0)) * 0.3)
+                            if alpha > 10:
+                                line_color = (alpha // 2, alpha, alpha // 2)
+                                pygame.draw.line(self.screen, line_color, (int(x1), int(y1)), (int(x2), int(y2)), 1)
     
     def draw_controls(self):
         """Draw control interface"""
@@ -328,6 +370,9 @@ class OldskoolMusicDisk:
                         self.set_volume(0.1)
                     elif event.key == pygame.K_MINUS:
                         self.set_volume(-0.1)
+                elif event.type == pygame.USEREVENT + 1:
+                    # Music ended - automatically play next track
+                    self.next_track()
             
             # Clear screen
             self.screen.fill(self.bg_color)
@@ -335,9 +380,9 @@ class OldskoolMusicDisk:
             # Draw effects
             self.draw_starfield()
             
-            # Update and draw VU meter
-            self.update_vu_meter()
-            self.draw_vu_meter()
+            # Update and draw VU cloud
+            self.update_vu_cloud()
+            self.draw_vu_cloud()
             
             # Draw UI
             self.draw_info()
